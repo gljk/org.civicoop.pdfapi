@@ -63,23 +63,43 @@ class CRM_Pdfapi_CivirulesAction extends CRM_CivirulesActions_Generic_Api {
    * @access public
    */
   public function userFriendlyConditionParams() {
-    $template = 'unknown template';
     $params = $this->getActionParameters();
-    $version = CRM_Core_BAO_Domain::version();
+    $templateTitle = $this->getTemplateTitle($params['template_id']);
+    $prettyTxt = ts('Send PDF to e-mail address (printer or mailbox) "%1" with template "%2"', array(
+      1 => $params['to_email'],
+      2 => $templateTitle,
+    ));
+    if (isset($params['body_template_id']) && !empty($params['body_template_id'])) {
+      $bodyTemplateTitle = $this->getTemplateTitle($params['body_template_id']);
+      $prettyTxt .= ' , template for e-mail body ' . $bodyTemplateTitle;
+    }
+    if (isset($params['email_subject']) && !empty($params['email_subject'])) {
+      $prettyTxt .= ' and subject of the email: ' . $params['email_subject'];
+    }
+    return $prettyTxt;
+  }
+
+  /**
+   * Method to get the title of a template
+   *
+   * @param $templateId
+   * @return string
+   */
+  private function getTemplateTitle($templateId) {
+    $templateTitle = 'unknown template';
     // Compatibility with CiviCRM > 4.3
+    $version = CRM_Core_BAO_Domain::version();
     if($version >= 4.4) {
       $messageTemplates = new CRM_Core_DAO_MessageTemplate();
     } else {
       $messageTemplates = new CRM_Core_DAO_MessageTemplates();
     }
-    $messageTemplates->id = $params['template_id'];
+    $messageTemplates->id = $templateId;
     $messageTemplates->is_active = true;
     if ($messageTemplates->find(TRUE)) {
-      $template = $messageTemplates->msg_title;
+      $templateTitle = $messageTemplates->msg_title;
     }
-    return ts('Send PDF to e-mail address (printer or mailbox) "%1" with template "%2"', array(
-        1=>$params['to_email'],
-        2=>$template
-    ));
+    return $templateTitle;
   }
+
 }

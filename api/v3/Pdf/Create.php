@@ -9,9 +9,43 @@
  * @see http://wiki.civicrm.org/confluence/display/CRM/API+Architecture+Standards
  */
 function _civicrm_api3_pdf_create_spec(&$spec) {
-  $spec['contact_id']['api.required'] = 1;
   $spec['template_id']['api.required'] = 1;
   $spec['to_email']['api.required'] = 1;
+  $spec['contact_id'] = array(
+    'name' => 'contact_id',
+    'title' => 'contact ID',
+    'description' => 'ID of the CiviCRM contact',
+    'api.required' => 1,
+    'type' => CRM_Utils_Type::T_INT,
+  );
+  $spec['template_id'] = array(
+    'name' => 'template_id',
+    'title' => 'template ID to be used for the PDF',
+    'description' => 'ID of the template that will be used for the PDF',
+    'api.required' => 1,
+    'type' => CRM_Utils_Type::T_INT,
+  );
+  $spec['to_email'] = array(
+    'name' => 'to_email',
+    'title' => 'to email address',
+    'description' => 'the e-mail address the PDF will be sent to',
+    'api.required' => 1,
+    'type' => CRM_Utils_Type::T_STRING,
+  );
+  $spec['body_template_id'] = array(
+    'name' => 'body_template_id',
+    'title' => 'template ID email body',
+    'description' => 'ID of the template that will be used for the email body',
+    'api.required' => 0,
+    'type' => CRM_Utils_Type::T_INT,
+  );
+  $spec['email_subject'] = array(
+    'name' => 'email_subject',
+    'title' => 'Email subject',
+    'description' => 'Subject of the email that sends the PDF',
+    'api.required' => 0,
+    'type' => CRM_Utils_Type::T_STRING,
+  );
 }
 
 /**
@@ -50,28 +84,33 @@ function civicrm_api3_pdf_create($params) {
     $messageTemplates->pdf_format_id = CRM_Utils_Array::value('pdf_format_id', $params, 0);
   }
   $subject = $messageTemplates->msg_subject;
-  $html_template = _civicrm_api3_pdf_formatMessage($messageTemplates);
+  $htmlTemplate = _civicrm_api3_pdf_formatMessage($messageTemplates);
 
-  $tokens = CRM_Utils_Token::getTokens($html_template);
+  $tokens = CRM_Utils_Token::getTokens($htmlTemplate);
 
   // Optional template_email_id, if not default 0
-  $template_email_id = CRM_Utils_Array::value('template_email_id', $params, 0);
+  $templateEmailId = CRM_Utils_Array::value('body_template_id', $params, 0);
   // Optional argument: use email subject from email template
-  $template_email_use_subject = CRM_Utils_Array::value('template_email_use_subject', $params, 0);
+  $templateEmailUseSubject = 0;
 
-  if ($template_email_id) {
+  if ($templateEmailId) {
     if($version >= 4.4) {
       $messageTemplatesEmail = new CRM_Core_DAO_MessageTemplate();
     } else {
       $messageTemplatesEmail = new CRM_Core_DAO_MessageTemplates();
     }
-    $messageTemplatesEmail->id = $template_email_id;
+    $messageTemplatesEmail->id = $templateEmailId;
     if (!$messageTemplatesEmail->find(TRUE)) {
-      throw new API_Exception('Could not find template with ID: ' . $template_email_id);
+      throw new API_Exception('Could not find template with ID: ' . $templateEmailId);
     }
-    $html_message_email = $messageTemplatesEmail->msg_html;
-    $email_subject = $messageTemplatesEmail->msg_subject;
-    $tokens_email = CRM_Utils_Token::getTokens($html_message_email);
+    $htmlMessageEmail = $messageTemplatesEmail->msg_html;
+    if (isset($params['email_subject']) && !empty($params['email_subject'])) {
+      $emailSubject = $params['email_subject'];
+    }
+    else {
+      $emailSubject = $messageTemplatesEmail->msg_subject;
+    }
+    $tokensEmail = CRM_Utils_Token::getTokens($htmlMessageEmail);
   }
 
   // get replacement text for these tokens
@@ -90,9 +129,8 @@ function civicrm_api3_pdf_create($params) {
     }
   }
 
-
   foreach($contactIds as $contactId){
-    $html_message = $html_template;
+    $html_message = $htmlTemplate;
     list($details) = CRM_Utils_Token::getTokenDetails(array($contactId), $returnProperties, false, false, null, $tokens);
     $contact = reset( $details );
     if (isset($contact['do_not_mail']) && $contact['do_not_mail'] == TRUE) {
@@ -119,70 +157,77 @@ function civicrm_api3_pdf_create($params) {
     CRM_Utils_Hook::tokens($hookTokens);
     $categories = array_keys($hookTokens);
 
-    CRM_Utils_Token::replaceGreetingTokens($html_message, NULL, $contact['contact_id']);
-    $html_message = CRM_Utils_Token::replaceDomainTokens($html_message, $domain, true, $tokens, true);
-    $html_message = CRM_Utils_Token::replaceContactTokens($html_message, $contact, false, $tokens, false, true);
-    $html_message = CRM_Utils_Token::replaceComponentTokens($html_message, $contact, $tokens, true);
-    $html_message = CRM_Utils_Token::replaceHookTokens($html_message, $contact , $categories, true);
+    CRM_Utils_Token::replaceGreetingTokens($htmlMessage, NULL, $contact['contact_id']);
+    $htmlMessage = CRM_Utils_Token::replaceDomainTokens($htmlMessage, $domain, TRUE, $tokens, TRUE);
+    $htmlMessage = CRM_Utils_Token::replaceContactTokens($htmlMessage, $contact, FALSE, $tokens, FALSE, TRUE);
+    $htmlMessage = CRM_Utils_Token::replaceComponentTokens($htmlMessage, $contact, $tokens, TRUE);
+    $htmlMessage = CRM_Utils_Token::replaceHookTokens($htmlMessage, $contact , $categories, TRUE);
     if (defined('CIVICRM_MAIL_SMARTY') && CIVICRM_MAIL_SMARTY) {
       $smarty = CRM_Core_Smarty::singleton();
       // also add the contact tokens to the template
       $smarty->assign_by_ref('contact', $contact);
-      $html_message = $smarty->fetch("string:$html_message");
+      $htmlMessage = $smarty->fetch("string:$htmlMessage");
     }
 
-    $html[] = $html_message;
+    $html[] = $htmlMessage;
 
-    if ($template_email_id) {
-      CRM_Utils_Token::replaceGreetingTokens($html_message_email, NULL, $contact['contact_id']);
-      $html_message_email = CRM_Utils_Token::replaceDomainTokens($html_message_email, $domain, true, $tokens_email, true);
-      $html_message_email = CRM_Utils_Token::replaceContactTokens($html_message_email, $contact, false, $tokens_email, false, true);
-      $html_message_email = CRM_Utils_Token::replaceComponentTokens($html_message_email, $contact, $tokens_email, true);
-      $html_message_email = CRM_Utils_Token::replaceHookTokens($html_message_email, $contact , $categories, true);
+    if ($templateEmailId) {
+      CRM_Utils_Token::replaceGreetingTokens($htmlMessageEmail, NULL, $contact['contact_id']);
+      $htmlMessageEmail = CRM_Utils_Token::replaceDomainTokens($htmlMessageEmail, $domain, TRUE, $tokensEmail, TRUE);
+      $htmlMessageEmail = CRM_Utils_Token::replaceContactTokens($htmlMessageEmail, $contact, FALSE, $tokensEmail, FALSE, TRUE);
+      $htmlMessageEmail = CRM_Utils_Token::replaceComponentTokens($htmlMessageEmail, $contact, $tokensEmail, TRUE);
+      $htmlMessageEmail = CRM_Utils_Token::replaceHookTokens($htmlMessageEmail, $contact , $categories, TRUE);
       if (defined('CIVICRM_MAIL_SMARTY') && CIVICRM_MAIL_SMARTY) {
         $smarty = CRM_Core_Smarty::singleton();
         // also add the contact tokens to the template
         $smarty->assign_by_ref('contact', $contact);
-        $html_message_email = $smarty->fetch("string:$html_message_email");
+        $htmlMessageEmail = $smarty->fetch("string:$htmlMessageEmail");
       }
     }
     else {
-      $html_message_email = "CiviCRM has generated a PDF letter";
+      $htmlMessageEmail = "CiviCRM has generated a PDF letter";
     }
 
-    if ($template_email_use_subject && $template_email_id) {
-        $email_subject = CRM_Utils_Token::replaceDomainTokens($email_subject, $domain, true, $tokens_email, true);
-        $email_subject = CRM_Utils_Token::replaceContactTokens($email_subject, $contact, false, $tokens_email, false, true);
-        $email_subject = CRM_Utils_Token::replaceComponentTokens($email_subject, $contact, $tokens_email, true);
-        $email_subject = CRM_Utils_Token::replaceHookTokens($email_subject, $contact , $categories, true);
+    if (isset($emailSubject) && !empty($emailSubject)) {
+        $emailSubject = CRM_Utils_Token::replaceDomainTokens($emailSubject, $domain, TRUE, $tokensEmail, TRUE);
+        $emailSubject = CRM_Utils_Token::replaceContactTokens($emailSubject, $contact, FALSE, $tokensEmail, FALSE, TRUE);
+        $emailSubject = CRM_Utils_Token::replaceComponentTokens($emailSubject, $contact, $tokensEmail, TRUE);
+        $emailSubject = CRM_Utils_Token::replaceHookTokens($emailSubject, $contact , $categories, TRUE);
     }
     else {
-        $email_subject = 'PDF Letter from Civicrm - ' . $messageTemplates->msg_title;
+        $emailSubject = 'PDF Letter from Civicrm - ' . $messageTemplates->msg_title;
     }
 
     //create activity
-    $activityTypeID = CRM_Core_OptionGroup::getValue('activity_type',
-      'Print PDF Letter',
-      'name'
-    );
-    $activityParams = array(
-      'source_contact_id' => $contactId,
-      'activity_type_id' => $activityTypeID,
-      'activity_date_time' => date('YmdHis'),
-      'details' => $html_message,
-      'subject' => $subject,
-    );
-    $activity = CRM_Activity_BAO_Activity::create($activityParams);
-
+    try {
+      $activityTypeId = civicrm_api3('OptionValue', 'getvalue', array(
+        'option_group_id' => 'activity_type',
+        'name' => 'Print PDF Letter',
+        'return' => 'value',
+      ));
+    }
+    catch (CiviCRM_API3_Exception $ex) {
+      CRM_Core_Error::debug_log_message(ts('Could not find an activity type with name Print PDF Letter in ')
+        . __METHOD__ . ', no activity for sending PDF created');
+    }
+    if ($activityTypeId) {
+      $activityParams = array(
+        'source_contact_id' => $contactId,
+        'activity_type_id' => $activityTypeId,
+        'activity_date_time' => date('YmdHis'),
+        'details' => $htmlMessage,
+        'subject' => $subject,
+      );
+      $activity = CRM_Activity_BAO_Activity::create($activityParams);
+    }
     // Compatibility with CiviCRM >= 4.4
     if($version >= 4.4){
       $activityContacts = CRM_Core_OptionGroup::values('activity_contacts', FALSE, FALSE, FALSE, NULL, 'name');
-      $targetID = CRM_Utils_Array::key('Activity Targets', $activityContacts);
-
+      $targetId = CRM_Utils_Array::key('Activity Targets', $activityContacts);
       $activityTargetParams = array(
         'activity_id' => $activity->id,
         'contact_id' => $contactId,
-        'record_type_id' => $targetID
+        'record_type_id' => $targetId,
       );
       CRM_Activity_BAO_ActivityContact::create($activityTargetParams);
     }
@@ -194,7 +239,6 @@ function civicrm_api3_pdf_create($params) {
       CRM_Activity_BAO_Activity::createActivityTarget($activityTargetParams);
     }
   }
-
   $fileName = CRM_Utils_String::munge($messageTemplates->msg_title) . '.pdf';
   $pdf = CRM_Utils_PDF_Utils::html2pdf($html, $fileName, TRUE, $messageTemplates->pdf_format_id);
   $tmpFileName = CRM_Utils_File::tempnam();
@@ -210,8 +254,8 @@ function civicrm_api3_pdf_create($params) {
     'from' => $from,
     'toName' => $from[0],
     'toEmail' => $params['to_email'],
-    'subject' => $email_subject,
-    'html' => $html_message_email,
+    'subject' => $emailSubject,
+    'html' => $htmlMessageEmail,
     'attachments' => array(
         array(
             'fullPath' => $tmpFileName,
@@ -220,19 +264,17 @@ function civicrm_api3_pdf_create($params) {
         )
     )
   );
-
   $result = CRM_Utils_Mail::send($mailParams);
   if (!$result) {
     throw new API_Exception('Error sending e-mail to '.$params['to_email']);
   }
-
 
   $returnValues = array();
   return civicrm_api3_create_success($returnValues, $params, 'Pdf', 'Create');
 }
 
 function _civicrm_api3_pdf_formatMessage($messageTemplates){
-  $html_message = $messageTemplates->msg_html;
+  $htmlMessage = $messageTemplates->msg_html;
 
   //time being hack to strip '&nbsp;'
   //from particular letter line, CRM-6798
@@ -246,7 +288,7 @@ function _civicrm_api3_pdf_formatMessage($messageTemplates){
           'pattern' => '/<(\s+)?br(\s+)?\/>/m',
       ),
   );
-  $htmlMsg = preg_split($newLineOperators['p']['pattern'], $html_message);
+  $htmlMsg = preg_split($newLineOperators['p']['pattern'], $htmlMessage);
   foreach ($htmlMsg as $k => & $m) {
     $messages = preg_split($newLineOperators['br']['pattern'], $m);
     foreach ($messages as $key => & $msg) {
@@ -271,7 +313,7 @@ function _civicrm_api3_pdf_formatMessage($messageTemplates){
     }
     $m = implode($newLineOperators['br']['oper'], $messages);
   }
-  $html_message = implode($newLineOperators['p']['oper'], $htmlMsg);
+  $htmlMessage = implode($newLineOperators['p']['oper'], $htmlMsg);
 
-  return $html_message;
+  return $htmlMessage;
 }
