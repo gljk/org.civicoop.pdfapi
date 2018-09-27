@@ -264,6 +264,9 @@ function civicrm_api3_pdf_create($params) {
         )
     )
   );
+  if ($params['to_contact']) {
+    $mailParams['toEmail'] = $contact['email'];
+  }
   $result = CRM_Utils_Mail::send($mailParams);
   if (!$result) {
     throw new API_Exception('Error sending e-mail to '.$params['to_email']);

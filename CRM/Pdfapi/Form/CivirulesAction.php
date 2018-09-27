@@ -58,8 +58,9 @@ class CRM_Pdfapi_Form_CivirulesAction extends CRM_Core_Form {
   function buildQuickForm() {
     $this->setFormTitle();
     $this->add('hidden', 'rule_action_id');
-    $this->add('text', 'to_email', ts('To e-mail address'), array(),TRUE);
+    $this->add('text', 'to_email', ts('To e-mail address'), array(),FALSE);
     $this->addRule('to_email', ts('Email is not valid.'), 'email');
+    $this->add('checkbox','to_contact', ts('Send to Contact'));
     $this->add('select', 'template_id', ts('Message template for the PDF'), $this->getMessageTemplates(), TRUE);
     $this->add('select', 'body_template_id', ts('Message template for the e-mail that sends the PDF'), $this->getMessageTemplates(), FALSE);
     $this->add('text', 'email_subject', ts('Subject for the e-mail that will send the PDF'), array(), FALSE);
@@ -84,6 +85,9 @@ class CRM_Pdfapi_Form_CivirulesAction extends CRM_Core_Form {
     if (!empty($data['to_email'])) {
       $defaultValues['to_email'] = $data['to_email'];
     }
+    if (!empty($data['to_contact'])) {
+      $defaultValues['to_contact'] = $data['to_contact'];
+    }
     if (!empty($data['template_id'])) {
       $defaultValues['template_id'] = $data['template_id'];
     }
@@ -103,6 +107,7 @@ class CRM_Pdfapi_Form_CivirulesAction extends CRM_Core_Form {
    */
   public function postProcess() {
     $data['to_email'] = $this->_submitValues['to_email'];
+    $data['to_contact'] = $this->_submitValues['to_contact'];
     $data['template_id'] = $this->_submitValues['template_id'];
     $data['body_template_id'] = $this->_submitValues['body_template_id'];
     $data['email_subject'] = $this->_submitValues['email_subject'];
